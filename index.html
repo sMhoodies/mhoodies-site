@@ -1485,9 +1485,15 @@ function setChip(cls, text){
   $('#liveText').textContent = text;
 }
 function renderDiag(){
+  /* Le diagnostic est le seul endroit où des chaînes venues des APIs
+     (symboles de tokens, messages d'erreur) entrent dans le DOM. On les
+     échappe : une API compromise ne doit pas pouvoir injecter de balise. */
+  const esc = s => String(s).replace(/[&<>"']/g,
+    c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
   $('#diagBody').innerHTML = DIAG.map(([name, ok, msg]) =>
-    `<div class="diag-row"><b>${name}</b><span class="${ok?'ok':'ko'}">${ok?'OK':'FAIL'}</span><span>${msg}</span></div>`
-  ).join('') + `<div class="diag-row"><b>Token</b><span>${TOKEN || '(non renseigné)'}</span></div>`;
+    `<div class="diag-row"><b>${esc(name)}</b><span class="${ok?'ok':'ko'}">${ok?'OK':'FAIL'}</span><span>${esc(msg)}</span></div>`
+  ).join('') + `<div class="diag-row"><b>Token</b><span>${esc(TOKEN || '(non renseigné)')}</span></div>`;
 }
 
 refresh();
