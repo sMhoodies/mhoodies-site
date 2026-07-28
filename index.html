@@ -541,7 +541,7 @@ footer{border-top:1px solid var(--line);padding:34px 0;margin-top:20px}
   <div class="sec-head">
     <div class="eyebrow">RATING PROCESS</div>
     <h2>How the rating is earned</h2>
-    <p>Every rating decision is a scored, published, holder-voted event. No rating moves without a committee record. This is a community rating on a community project — it measures participation and follow-through, not price.</p>
+    <p>The grade is computed from the holder count read on Robinhood Chain, against a published tier table. No committee, no discretion, no vote to influence. Anyone can reproduce the calculation. It measures how many people hold, not what the token is worth.</p>
   </div>
 
   <div class="stack">
@@ -556,11 +556,11 @@ footer{border-top:1px solid var(--line);padding:34px 0;margin-top:20px}
     <div class="card">
       <div class="card-head"><h3>RATING SCALE</h3><span class="mono-label" id="scalePos"></span></div>
       <div class="scale" id="scale"></div>
-      <p class="sub" style="margin-top:16px">A grade is only upgraded when the weighted score clears the threshold at two consecutive committee reviews. Downgrades take effect immediately.</p>
+      <p class="sub" style="margin-top:16px">The grade moves as soon as the holder count crosses a threshold — up immediately, down only past the 10% buffer. There is nothing to wait for and nobody to convince.</p>
     </div>
 
     <div class="card">
-      <div class="card-head"><h3>COMMITTEE CADENCE</h3></div>
+      <div class="card-head"><h3>HOW IT UPDATES</h3></div>
       <div class="scroll-x">
         <table>
           <thead><tr><th>STAGE</th><th>WHO</th><th>WHAT HAPPENS</th><th>DURATION</th></tr></thead>
@@ -616,7 +616,7 @@ footer{border-top:1px solid var(--line);padding:34px 0;margin-top:20px}
   <div class="sec-head">
     <div class="eyebrow">TREASURY</div>
     <h2>Fees in, buybacks out</h2>
-    <p>Trading fees accrue to the treasury wallet. On every threshold hit, the treasury buys mHoodies on the open market and locks it. Each execution is listed below with its transaction hash.</p>
+    <p>The plan: trading fees accrue to a treasury wallet, and on every threshold hit the treasury buys mHoodies on the open market. Nothing here is running yet — this page stays empty until the first real execution.</p>
   </div>
 
   <div class="stack">
@@ -644,7 +644,7 @@ footer{border-top:1px solid var(--line);padding:34px 0;margin-top:20px}
     </div>
 
     <div class="note">
-      Treasury balances shown here are rendered from the values in this page's config. Wire them to the chain before launch — the checklist at the bottom of the file explains how.
+      No treasury wallet is in operation yet, so no fees have accrued and no buyback has been executed. This page will fill itself as soon as one is — every execution listed with its transaction hash, verifiable on Blockscout.
     </div>
   </div>
 </section>
