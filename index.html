@@ -616,7 +616,7 @@ footer{border-top:1px solid var(--line);padding:34px 0;margin-top:20px}
   <div class="sec-head">
     <div class="eyebrow">TREASURY</div>
     <h2>Fees in, buybacks out</h2>
-    <p>The plan: trading fees accrue to a treasury wallet, and on every threshold hit the treasury buys mHoodies on the open market. Nothing here is running yet — this page stays empty until the first real execution.</p>
+    <p>Trading fees are claimed from the pool, then spent buying mHoodies on the open market. Every execution is listed below with its transaction hash — click it and check the amounts against the chain.</p>
   </div>
 
   <div class="stack">
@@ -627,7 +627,7 @@ footer{border-top:1px solid var(--line);padding:34px 0;margin-top:20px}
         <div class="sub" id="tvCount"></div>
       </div>
       <div class="card">
-        <span class="mono-label">TOKENS REMOVED FROM MARKET</span>
+        <span class="mono-label">TOKENS BOUGHT BACK</span>
         <div class="buy-amt" id="tvBought" style="margin-top:10px">—</div>
         <div class="sub" id="tvBoughtPct"></div>
       </div>
@@ -644,7 +644,7 @@ footer{border-top:1px solid var(--line);padding:34px 0;margin-top:20px}
     </div>
 
     <div class="note">
-      No treasury wallet is in operation yet, so no fees have accrued and no buyback has been executed. This page will fill itself as soon as one is — every execution listed with its transaction hash, verifiable on Blockscout.
+      Bought-back tokens are currently held in the wallet listed above and are not locked or burned. They could return to the market. This page will say otherwise only when that changes.
     </div>
   </div>
 </section>
@@ -764,18 +764,26 @@ const CONFIG = {
     { title:"Long Term Commitment",      meta:"Day 1",          done:false }
   ],
 
-  /* ---- BUYBACKS — vide au lancement. Ajoute une ligne APRÈS chaque rachat
-         réel, en première position, avec le vrai hash de transaction. ---- */
-  buybacks: [],
+  /* ---- BUYBACKS — le plus récent en premier. Chaque ligne doit correspondre
+         à une transaction réelle, vérifiable par son hash. ---- */
+  buybacks: [
+    { date:"2026-07-28 15:23 UTC", eth:0.00541084, tokens:3303074,
+      tx:"0x29befd81642aff90ef3bb9aa3214cdb74cb28528271af2ce6a1426b9c71d61ca" }
+  ],
 
-  /* ---- TREASURY ---- */
+  /* ---- TREASURY ----
+     Ces chiffres sont la somme exacte des buybacks listés ci-dessus, donc
+     vérifiables un par un via leur hash. `lockedPct` reste à 0 tant que les
+     tokens rachetés ne sont pas envoyés vers un contrat de lock ou brûlés :
+     annoncer un verrouillage inexistant serait le mensonge le plus facile
+     à démonter sur une page qui s'appelle Transparency. */
   treasury: {
-    balance: 0,
-    usd: "$0",
+    balance: 3303074,
+    usd: "$10.16",
     lockedPct: 0,
-    wallet: "",
-    totalEthDeployed: 0,
-    totalTokensBought: 0,
+    wallet: "0x58b689e6eB54eBFAA594f4418A0424d3861f1b15",
+    totalEthDeployed: 0.00541084,
+    totalTokensBought: 3303074,
     supplyTotal: 0                      // lu on-chain via Blockscout
   },
 
