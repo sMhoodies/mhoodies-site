@@ -909,6 +909,16 @@ function renderDashboard(){
     note : 'verified on explorer'
   });
 
+  /* Dérivé du registre : le compteur et le total ne peuvent pas diverger
+     des lignes réellement listées sur la page Treasury. */
+  const bbCount = CONFIG.buybacks.length;
+  const bbEth   = CONFIG.buybacks.reduce((a, b) => a + (b.eth || 0), 0);
+  setStat('buybacks', {
+    value: nf(bbCount),
+    delta: (bbEth < 0.01 ? bbEth.toFixed(6) : bbEth.toFixed(4)) + ' ETH',
+    note : bbCount ? 'total spent on buybacks' : 'none yet'
+  });
+
   const b = CONFIG.buybacks[0];
   if(b){
     $('#bbAmt').textContent   = b.eth + ' ETH';
