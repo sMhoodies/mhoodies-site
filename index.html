@@ -1260,37 +1260,10 @@ async function loadToken(){
   window.__decimals = dec;
 
   if(holders){
-    const prev = window.__lastHolders;
-    setStat('holders', { value: nf(holders) });
-
-    // retour visuel : on ne signale que les vraies variations, pas le 1er chargement
-    if(prev != null && holders !== prev){
-      const card = document.querySelector('.stat[data-key="holders"]');
-      const val  = card?.querySelector('.stat-val');
-      if(card){
-        card.classList.remove('flash');
-        void card.offsetWidth;              // force le redémarrage de l'animation
-        card.classList.add('flash');
-      }
-      if(val){
-        const diff = holders - prev;
-        const b = document.createElement('span');
-        b.className = 'bump';
-        b.textContent = (diff > 0 ? '+' : '') + diff;
-        b.style.color = diff > 0 ? 'var(--green)' : '#e5776f';
-        val.appendChild(b);
-        setTimeout(() => b.remove(), 3400);
-      }
-    }
-    window.__lastHolders = holders;
-
-    const req = [...$$('.req')][0];
-    if(req){
-      req.querySelector('.sub').textContent = nf(holders) + ' holders';
-      const t100 = CONFIG.tiers.find(t => t.holders >= 100);
-      if(t100 && holders >= t100.holders) req.classList.add('done');
-    }
-    applyGrade(holders);          // ← la note se recalcule ici, à chaque refresh
+    window.__holdersTotal = holders;
+    // Note appliquée ici avec le total brut, en secours. loadConcentration
+    // la recalcule juste après sur le nombre de holders réels (pool exclu).
+    updateHolders(holders, null);
   }
   if(t.total_supply){
     window.__supplyRaw = BigInt(t.total_supply);          // brut, pour la concentration
@@ -1352,6 +1325,13 @@ async function loadConcentration(){
   const sum = top.reduce((a, i) => a + BigInt(i.value || 0), 0n);
   const pct = Number(sum * 10000n / denom) / 100;
 
+  /* Le pool et les adresses techniques ne sont pas des membres de la
+     communauté : on les retire aussi du compteur qui pilote la note. */
+  const excludedFound = items.length - kept.length;
+  if(window.__holdersTotal){
+    updateHolders(Math.max(0, window.__holdersTotal - excludedFound), excludedFound);
+  }
+
   const verdict = pct > 70 ? 'highly concentrated'
                 : pct > 40 ? 'moderate'
                 : 'well distributed';
@@ -1359,9 +1339,51 @@ async function loadConcentration(){
   setStat('top10', {
     value: pct.toFixed(1) + '%',
     delta: verdict,
-    note : `top ${top.length} of ${nf(kept.length)} holders`
+    note : kept.length <= 10
+             ? `all ${nf(kept.length)} holders`
+             : `top 10 of ${nf(kept.length)} holders`
   });
   return `${pct.toFixed(1)}% du supply détenu · ${verdict}`;
+}
+
+/* --- mise à jour du compteur de holders, du flash et de la note ---
+   `excluded` = nombre d'adresses techniques retirées du compte (pool, burn).
+   Le pool de liquidité n'est pas un membre de la communauté : le faire
+   compter dans la note gonflerait le palier d'un cran gratuitement. */
+function updateHolders(count, excluded){
+  const prev = window.__lastHolders;
+  setStat('holders', {
+    value: nf(count),
+    note : excluded ? `excl. ${excluded} contract${excluded>1?'s':''}` : 'read on-chain'
+  });
+
+  if(prev != null && count !== prev){
+    const card = document.querySelector('.stat[data-key="holders"]');
+    const val  = card?.querySelector('.stat-val');
+    if(card){
+      card.classList.remove('flash');
+      void card.offsetWidth;              // force le redémarrage de l'animation
+      card.classList.add('flash');
+    }
+    if(val){
+      const diff = count - prev;
+      const b = document.createElement('span');
+      b.className = 'bump';
+      b.textContent = (diff > 0 ? '+' : '') + diff;
+      b.style.color = diff > 0 ? 'var(--green)' : '#e5776f';
+      val.appendChild(b);
+      setTimeout(() => b.remove(), 3400);
+    }
+  }
+  window.__lastHolders = count;
+
+  const req = [...$$('.req')][0];
+  if(req){
+    req.querySelector('.sub').textContent = nf(count) + ' holders';
+    const t100 = CONFIG.tiers.find(t => t.holders >= 100);
+    req.classList.toggle('done', !!t100 && count >= t100.holders);
+  }
+  applyGrade(count);
 }
 
 /* --- 3. Solde du treasury (appel RPC balanceOf) --- */
