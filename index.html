@@ -871,13 +871,6 @@ function renderDashboard(){
   $('#reviewLabel').textContent = CONFIG.review.label;
   startFixClock();
 
-  const okChecks = CONFIG.safety.filter(s => s.done).length;
-  setStat('safety', {
-    value: `${okChecks} / ${CONFIG.safety.length}`,
-    delta: okChecks === CONFIG.safety.length ? 'all confirmed' : 'unverified',
-    note : 'confirmed on explorer'
-  });
-
   $('#statsGrid').innerHTML = CONFIG.stats.map(s=>`
     <div class="card stat" data-key="${s.key}">
       <div class="stat-head">
@@ -899,6 +892,14 @@ function renderDashboard(){
       <div class="check">${r.done?CHECK:''}</div>
       <div><div class="req-title">${r.title}</div><div class="sub">${r.meta}</div></div>
     </div>`).join('');
+
+  // après la création des cartes, sinon la cible n'existe pas encore
+  const okChecks = CONFIG.safety.filter(s => s.done).length;
+  setStat('safety', {
+    value: `${okChecks} / ${CONFIG.safety.length}`,
+    delta: okChecks === CONFIG.safety.length ? 'all confirmed' : 'partially verified',
+    note : 'verified on explorer'
+  });
 
   const b = CONFIG.buybacks[0];
   if(b){
