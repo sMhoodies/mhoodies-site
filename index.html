@@ -1321,16 +1321,29 @@ async function loadConcentration(){
   const denom = supply - exclSum;
   if(denom <= 0n) throw new Error('supply détenu nul');
 
-  const top = kept.slice(0, 10);
-  const sum = top.reduce((a, i) => a + BigInt(i.value || 0), 0n);
-  const pct = Number(sum * 10000n / denom) / 100;
-
   /* Le pool et les adresses techniques ne sont pas des membres de la
-     communauté : on les retire aussi du compteur qui pilote la note. */
+     communauté : on les retire du compteur qui pilote la note.
+     Doit rester AVANT toute sortie anticipée. */
   const excludedFound = items.length - kept.length;
   if(window.__holdersTotal){
     updateHolders(Math.max(0, window.__holdersTotal - excludedFound), excludedFound);
   }
+
+  /* Sous 11 holders, le "top 10" est l'ensemble des holders : le résultat
+     vaut 100% par construction et n'informe sur rien. On laisse la carte
+     dormante, elle s'active seule au 11e holder. */
+  if(kept.length <= 10){
+    setStat('top10', {
+      value: '—',
+      delta: 'not meaningful yet',
+      note : `needs 11+ holders · ${nf(kept.length)} today`
+    });
+    return `en veille · ${nf(kept.length)} holders (seuil : 11)`;
+  }
+
+  const top = kept.slice(0, 10);
+  const sum = top.reduce((a, i) => a + BigInt(i.value || 0), 0n);
+  const pct = Number(sum * 10000n / denom) / 100;
 
   const verdict = pct > 70 ? 'highly concentrated'
                 : pct > 40 ? 'moderate'
@@ -1339,9 +1352,7 @@ async function loadConcentration(){
   setStat('top10', {
     value: pct.toFixed(1) + '%',
     delta: verdict,
-    note : kept.length <= 10
-             ? `all ${nf(kept.length)} holders`
-             : `top 10 of ${nf(kept.length)} holders`
+    note : `top 10 of ${nf(kept.length)} holders`
   });
   return `${pct.toFixed(1)}% du supply détenu · ${verdict}`;
 }
