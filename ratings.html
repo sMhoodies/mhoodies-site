@@ -249,10 +249,10 @@ const CONFIG = {
       pool:"0x49662b2daC8B1e0EB279E3BdD7c06668D57d097E" },   // mHoodies
     { addr:"0x020bfC650A365f8BB26819deAAbF3E21291018b4" },   // CASHCAT
     { addr:"0x39dBED3a2bd333467115dE45665cC57F813C4571" },   // PONS
+    { addr:"0xD7321801CAae694090694Ff55A9323139F043B88" },   // JUGGERNAUT
     { addr:"0x62C71cd34a52c30d894419CBcc55Db2aFA8032eA" },   // YOLO
     { addr:"0x3aE3faCC99F43D5A39254A0b9f5cc0291ECd39cc" },   // INTERN
     { addr:"0xe15db7C8547A0adD11eB26A700246cCa08aEfCe5" },   // WOOF
-    { addr:"0xD7321801CAae694090694Ff55A9323139F043B88" },   // JUGGERNAUT
   ],
 
   /* Même table que le dashboard. Ne la modifie pas sans raison :
@@ -439,28 +439,49 @@ async function rpcBalanceOf(token, holder){
    priceUsd / priceNative donne les dollars par ETH. Aucune dépendance
    supplémentaire. */
 async function poolFallback(tokenAddr, pairAddr, supplyRaw, dec, ethUsd){
-  if(!pairAddr || !ethUsd || !supplyRaw) return null;
+  // hors de cette plage, le ratio a été mal déduit : mieux vaut n/a
+  if(!pairAddr || !supplyRaw) return null;
+  if(!ethUsd || ethUsd < 200 || ethUsd > 50000) return null;
   const r = await fetch(`${CONFIG.chain.explorer}/api/v2/addresses/${pairAddr}/token-balances`);
   if(!r.ok) return null;
   const items = await r.json();
   if(!Array.isArray(items)) return null;
 
-  const mine  = items.find(i => (i.token?.address_hash||i.token?.address||'').toLowerCase() === tokenAddr.toLowerCase());
-  const other = items.find(i => (i.token?.address_hash||i.token?.address||'').toLowerCase() !== tokenAddr.toLowerCase());
-  if(!mine || !other) return null;
+  const addrOf = i => (i.token?.address_hash || i.token?.address || '').toLowerCase();
+  const mine = items.find(i => addrOf(i) === tokenAddr.toLowerCase());
+  if(!mine) return null;
+
+  /* Le token de cotation est identifié par son symbole, pas par élimination :
+     un pool qui a reçu le moindre airdrop ferait calculer le prix contre le
+     mauvais actif, et le chiffre serait faux sans être visiblement faux. */
+  const others = items.filter(i => addrOf(i) !== tokenAddr.toLowerCase());
+  const quote = others.find(i => /^(W?ETH)$/i.test(i.token?.symbol || ''));
+  if(!quote) return null;
 
   const toNum = (raw, d) => {
     const v = BigInt(raw||0), p = 10n ** BigInt(d);
     return Number(v / p) + Number(v % p) / Number(p);
   };
-  const tokAmt  = toNum(mine.value,  parseInt(mine.token?.decimals  ?? dec, 10));
-  const quoteAmt= toNum(other.value, parseInt(other.token?.decimals ?? 18, 10));
+  const tokDec  = parseInt(mine.token?.decimals  ?? dec, 10);
+  const quoteDec= parseInt(quote.token?.decimals ?? 18, 10);
+  const tokAmt  = toNum(mine.value,  tokDec);
+  const quoteAmt= toNum(quote.value, quoteDec);
   if(!tokAmt || !quoteAmt) return null;
 
   const priceUsd = (quoteAmt / tokAmt) * ethUsd;
+  const liqUsd   = quoteAmt * ethUsd * 2;
+  const supply   = toNum(supplyRaw, dec);
+  const mcap     = priceUsd * supply;
+
+  /* Garde-fou sur le prix de l'ETH plutôt que sur le résultat : une
+     capitalisation inférieure à la liquidité est normale ici, puisque le
+     pool détient l'essentiel du supply. C'est en amont que la dérive se
+     produit, et une valeur hors de cette plage signale un ratio mal déduit. */
+  if(!isFinite(priceUsd) || priceUsd <= 0) return null;
+
   return {
-    liquidity:{ usd: quoteAmt * ethUsd * 2 },
-    marketCap: priceUsd * toNum(supplyRaw, dec),
+    liquidity:{ usd: liqUsd },
+    marketCap: mcap,
     volume:{ h24: null },        // non reconstituable sans historique
     priceUsd: String(priceUsd),
     __fallback: true
@@ -596,11 +617,21 @@ async function run(){
   try { markets = await loadMarkets(list.map(t=>t.addr)); }
   catch(e){ /* on continue : l'explorer suffit pour la note */ }
 
-  // dollars par ETH, déduits de n'importe quelle paire encore indexée
+  /* Dollars par ETH, déduits des paires encore indexées. On ne retient que
+     celles réellement cotées en WETH : une paire cotée contre autre chose
+     donnerait un ratio priceUsd/priceNative qui n'a rien à voir, et tout le
+     repli on-chain dériverait d'un facteur invisible. Médiane pour absorber
+     une paire aberrante. */
   let ethUsd = null;
+  const cands = [];
   for(const p of Object.values(markets)){
+    if(!/^(W?ETH)$/i.test(p.quoteToken?.symbol || '')) continue;
     const u = parseFloat(p.priceUsd||0), n = parseFloat(p.priceNative||0);
-    if(u > 0 && n > 0){ ethUsd = u / n; break; }
+    if(u > 0 && n > 0) cands.push(u / n);
+  }
+  if(cands.length){
+    cands.sort((a,b)=>a-b);
+    ethUsd = cands[Math.floor(cands.length/2)];
   }
 
   let done = 0;
