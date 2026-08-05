@@ -159,9 +159,10 @@ footer{border-top:1px solid var(--line);padding:32px 0;margin-top:20px;color:var
     <div class="method">
       <div>
         <h4>Exit risk · 14.3%</h4>
-        <p>Price move if the largest non-pool wallet sells its whole position into the pool,
-           on a constant-product curve. 0% scores 100, 90% scores 0. Pool reserves are read
-           by direct contract call, not inferred from a holder list.</p>
+        <p>Price move if the largest non-pool <em>wallet</em> sells its whole position into
+           the pool, on a constant-product curve. Contracts are excluded — a second pool, a
+           bridge or an exchange wallet is not a discretionary seller, and counting them
+           inflated this figure. 0% scores 100, 90% scores 0.</p>
       </div>
       <div>
         <h4>Liquidity depth · 14.3%</h4>
@@ -276,7 +277,7 @@ const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
 const nf = n => Math.round(n).toLocaleString('en-US');
 const short = a => a.slice(0,6)+'…'+a.slice(-4);
-const money = n => n>=1e9?'$'+(n/1e9).toFixed(2)+'B':n>=1e6?'$'+(n/1e6).toFixed(2)+'M'
+const money = n => n==null?'—':n>=1e9?'$'+(n/1e9).toFixed(2)+'B':n>=1e6?'$'+(n/1e6).toFixed(2)+'M'
                  : n>=1e3?'$'+(n/1e3).toFixed(1)+'K':'$'+(n||0).toFixed(0);
 const esc = s => String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const sleep = ms => new Promise(r=>setTimeout(r,ms));
@@ -308,6 +309,7 @@ const sExit = imp => imp == null ? null : clamp(100 * (1 - imp/EXIT_MAX));
       dollars ne bougent rien et le critère sature. */
 const TRADE_USD = 10000;
 function sLiq(liq, mc){
+  if(liq == null) return null;          // donnée absente ≠ liquidité nulle
   if(!liq) return 0;
   const ratio = 1 / (1 + (2*TRADE_USD)/liq);
   const slip  = (1 - ratio*ratio) * 100;
@@ -339,6 +341,7 @@ const sScale = mc => (!mc || mc <= 0) ? null :
 //    au-delà, la rotation quotidienne devient difficile à expliquer autrement
 //    que par du volume artificiel.
 const sAct = (vol, liq) => {
+  if(vol == null || liq == null) return null;
   if(!liq) return 0;
   const r = vol / liq;
   return r < 0.3 ? clamp(r/0.3*100) : r <= 2.5 ? 100 : clamp(100 - (r-2.5)*12);
@@ -392,21 +395,25 @@ function rate({holders, top10, impact, liq, mc, vol, createdMs}){
            incomplete: vals.length < KEYS.length };
 }
 
-/* --- prix / liquidité / volume, en un seul appel groupé --- */
+/* --- prix / liquidité / volume ---
+   Un appel par token. L'appel groupé plafonne le nombre de paires renvoyées
+   et laisse tomber les plus petites : mHoodies ressortait à $0 de liquidité
+   alors que son pool existe. Six requêtes espacées coûtent moins cher qu'une
+   donnée fausse. */
 async function loadMarkets(addrs){
   const out = {};
-  for(let i=0;i<addrs.length;i+=25){
-    const chunk = addrs.slice(i,i+25);
-    const r = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${chunk.join(',')}`);
-    const j = await r.json();
-    for(const p of (j.pairs||[])){
-      if(p.chainId !== CONFIG.chain.dexscreener) continue;
-      const key = (p.baseToken?.address||'').toLowerCase();
-      const prev = out[key];
-      // on garde le pool le plus profond si le token en a plusieurs
-      if(!prev || (p.liquidity?.usd||0) > (prev.liquidity?.usd||0)) out[key] = p;
-    }
-    if(i+25 < addrs.length) await sleep(400);
+  for(let i=0;i<addrs.length;i++){
+    try{
+      const r = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${addrs[i]}`);
+      const j = await r.json();
+      for(const p of (j.pairs||[])){
+        if(p.chainId !== CONFIG.chain.dexscreener) continue;
+        const key = (p.baseToken?.address||'').toLowerCase();
+        const prev = out[key];
+        if(!prev || (p.liquidity?.usd||0) > (prev.liquidity?.usd||0)) out[key] = p;
+      }
+    }catch(e){ /* ce token n'aura pas de données marché */ }
+    if(i+1 < addrs.length) await sleep(250);
   }
   return out;
 }
@@ -447,17 +454,23 @@ async function loadToken(addr, pairAddr){
   const excluded = items.length - kept.length;
   const holders = Math.max(0, holdersRaw - excluded);
 
+  /* Pour l'exit risk on ne retient que les portefeuilles, pas les contrats.
+     Sur un token établi, le plus gros détenteur restant est souvent une
+     seconde pool, un pont ou un wallet d'exchange : aucun d'eux ne décide
+     un beau matin de tout vendre. Les compter gonflait le chiffre. */
+  const wallets = kept.filter(i => i.address?.is_contract !== true);
+
   // réserve du pool lue par RPC → impact d'une sortie totale du plus gros
   let impact = null, top10 = null;
-  if(pairAddr && kept.length){
+  if(pairAddr && wallets.length){
     try{
       const T = await rpcBalanceOf(addr, pairAddr);
-      const d = BigInt(kept[0].value||0);
+      const d = BigInt(wallets[0].value||0);
       if(T > 0n){
         const ratio = Number(T*10000n/(T+d))/10000;
         impact = (1 - ratio*ratio) * 100;
       }
-    }catch(e){ /* impact reste null, la ligne sera marquée incomplète */ }
+    }catch(e){ /* impact reste null, la ligne sera marquée PARTIAL */ }
   }
   // part du top 10 dans le supply détenu hors pool
   if(kept.length){
@@ -556,9 +569,9 @@ async function run(){
     const row = ROWS.find(r=>r.addr===t.addr);
     try{
       const info = await loadToken(t.addr, m?.pairAddress);
-      const mc = m?.marketCap ?? m?.fdv ?? 0;
-      const liq = m?.liquidity?.usd ?? 0;
-      const vol = m?.volume?.h24 ?? 0;
+      const mc  = m?.marketCap ?? m?.fdv ?? null;
+      const liq = m?.liquidity?.usd ?? null;
+      const vol = m?.volume?.h24 ?? null;
       const r = rate({ holders:info.holders, top10:info.top10, impact:info.impact,
                       liq, mc, vol, createdMs: m?.pairCreatedAt });
       Object.assign(row, {
