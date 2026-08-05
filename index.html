@@ -405,6 +405,7 @@ footer{border-top:1px solid var(--line);padding:34px 0;margin-top:20px}
       <button class="tab" role="tab" aria-selected="false" data-view="process">RATING PROCESS</button>
       <button class="tab" role="tab" aria-selected="false" data-view="transparency">TRANSPARENCY</button>
       <button class="tab" role="tab" aria-selected="false" data-view="treasury">TREASURY</button>
+      <a class="tab" href="/ratings.html" style="text-decoration:none;display:inline-block">CHAIN RATINGS ↗</a>
     </nav>
     <div class="nav-right">
       <a class="btn-buy" id="buyLinkNav" href="#" target="_blank" rel="noopener">BUY $MHOODIES</a>
@@ -1172,11 +1173,11 @@ function renderTreasury(){
 
 /* ---------- navigation ---------- */
 function goto(view){
-  $$('.tab').forEach(t => t.setAttribute('aria-selected', String(t.dataset.view===view)));
+  $$('.tab[data-view]').forEach(t => t.setAttribute('aria-selected', String(t.dataset.view===view)));
   $$('.view').forEach(v => v.classList.toggle('active', v.id === 'view-'+view));
   window.scrollTo({top:0, behavior:'smooth'});
 }
-$$('.tab').forEach(t => t.onclick = () => goto(t.dataset.view));
+$$('.tab[data-view]').forEach(t => t.onclick = () => goto(t.dataset.view));
 document.addEventListener('click', e => {
   const g = e.target.closest('[data-goto]');
   if(g){ e.preventDefault(); goto(g.dataset.goto); }
