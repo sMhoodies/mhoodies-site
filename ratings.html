@@ -139,8 +139,11 @@ footer{border-top:1px solid var(--line);padding:32px 0;margin-top:20px;color:var
             <th class="n s" data-k="holders">HOLDERS</th>
             <th class="n s" data-k="exit">EXIT RISK</th>
             <th class="n s" data-k="liqs">LIQ DEPTH</th>
-            <th class="n s" data-k="dists">DISTRIB</th>
+            <th class="n s" data-k="comms">COMMUNITY</th>
+            <th class="n s" data-k="concs">CONCENTR.</th>
             <th class="n s" data-k="acts">ACTIVITY</th>
+            <th class="n s" data-k="scales">SCALE</th>
+            <th class="n s" data-k="ages">AGE</th>
             <th class="n s" data-k="score">SCORE</th>
           </tr>
         </thead>
@@ -155,42 +158,59 @@ footer{border-top:1px solid var(--line);padding:32px 0;margin-top:20px;color:var
     <div class="card-head"><h3>METHODOLOGY</h3><span class="mono-label">PUBLISHED · UNCHANGED</span></div>
     <div class="method">
       <div>
-        <h4>Exit risk · 25%</h4>
-        <p>Price move if the largest non-pool wallet sells its whole position into the
-           pool, on a constant-product curve. 0% move scores 100, a 40% move scores 0.
-           This measures risk, not proportion — a wallet holding most of a tiny float
-           can be harmless.</p>
+        <h4>Exit risk · 14.3%</h4>
+        <p>Price move if the largest non-pool wallet sells its whole position into the pool,
+           on a constant-product curve. 0% scores 100, 90% scores 0. Pool reserves are read
+           by direct contract call, not inferred from a holder list.</p>
       </div>
       <div>
-        <h4>Liquidity depth · 25%</h4>
-        <p>Two halves, averaged. First, slippage on a $1,000 sell against the pool — can a
-           normal position actually be exited. Second, liquidity against market cap — is
-           the valuation backed by anything. Measuring only the second flatters tokens
-           nobody trades; only the first flatters size.</p>
+        <h4>Liquidity depth · 14.3%</h4>
+        <p>Two halves, averaged. Slippage on a $10,000 sell — can a real position be exited.
+           And liquidity against market cap — is the valuation backed. Measuring only the
+           second flatters tokens nobody trades; only the first flatters size.</p>
       </div>
       <div>
-        <h4>Distribution · 25%</h4>
-        <p>Holder count on a log scale to 5,000 (70%), corrected by the top 10's share of
-           held supply (30%). Pools and burn addresses are excluded — a pool is not a
-           community member.</p>
+        <h4>Community · 14.3%</h4>
+        <p>Real holder count on a log scale to 50,000. Pools and burn addresses are excluded —
+           a pool is not a community member. This is the only criterion that rewards size,
+           and it also sets the ceiling below.</p>
       </div>
       <div>
-        <h4>Trading activity · 25%</h4>
-        <p>24h volume against liquidity. Penalises both a dead book and implausible churn:
-           below 0.5x scores down for inactivity, above 5x scores down for what is usually
-           wash trading.</p>
+        <h4>Concentration · 14.3%</h4>
+        <p>The top 10 wallets' share of supply held outside the pool. Kept separate from
+           community size because they are different questions: a token can have many
+           holders and still be owned by ten of them.</p>
+      </div>
+      <div>
+        <h4>Trading activity · 14.3%</h4>
+        <p>24h volume against liquidity. Full marks between 0.3x and 2.5x daily turnover.
+           Below that is a dead book; above it, churn that is hard to explain by organic
+           demand alone.</p>
+      </div>
+      <div>
+        <h4>Scale · 14.3%</h4>
+        <p>Market cap on a log scale from $10K to $100M. Two tokens can post identical
+           ratios and be nothing alike: absolute size is a form of resilience. Log-scaled
+           so that a price rally moves the score by a few points, not a grade — this
+           measures how established a token is, not its momentum.</p>
+      </div>
+      <div>
+        <h4>Track record · 14.3%</h4>
+        <p>Pool age on a log scale to one year. The one input nobody can buy, borrow or
+           pump: a three-day-old token has proven nothing, whatever its ratios say. Taken
+           from the pair creation timestamp on-chain.</p>
       </div>
       <div>
         <h4>The ceiling</h4>
-        <p>The average of the four is then capped by holder count against the tier table.
-           A token cannot outrank its community size — being too small to have problems is
-           not the same as being sound. Capped rows are marked.</p>
+        <p>The average is then capped by holder count against the tier table. A token cannot
+           outrank its community size — being too small to have problems is not the same as
+           being sound. Capped rows are marked.</p>
       </div>
       <div>
-        <h4>What it is not</h4>
-        <p>Not a recommendation, not an endorsement, not a safety guarantee. Every input is
-           mechanical and reproducible, which makes the output checkable — not correct. A
-           token can score well here and still go to zero.</p>
+        <h4>Missing inputs</h4>
+        <p>An unavailable input is excluded from the average rather than scored zero, and the
+           row is marked PARTIAL. A rating built on three of four measures is not the same
+           object as a complete one, and says so.</p>
       </div>
     </div>
     <div class="rule"></div>
@@ -225,7 +245,6 @@ const CONFIG = {
     { addr:"0x62C71cd34a52c30d894419CBcc55Db2aFA8032eA" },   // YOLO
     { addr:"0x3aE3faCC99F43D5A39254A0b9f5cc0291ECd39cc" },   // INTERN
     { addr:"0xe15db7C8547A0adD11eB26A700246cCa08aEfCe5" },   // WOOF
-    { addr:"0x2E8c31162b855A2ffa90F6F8634643Ad6F111e18" },   // AI
   ],
 
   /* Même table que le dashboard. Ne la modifie pas sans raison :
@@ -273,23 +292,23 @@ let sortKey = 'holders', sortDir = -1;
 const clamp = (v,a=0,b=100) => Math.max(a, Math.min(b, v));
 
 /* ═══ LES QUATRE CRITÈRES ═══
-   Chacun rend une note sur 100. La note finale est leur moyenne simple,
-   puis plafonnée par le palier de holders : la taille ne dispense pas
-   d'être sain, mais un token minuscule ne peut pas être bien noté parce
-   qu'il est trop petit pour avoir des problèmes. */
+   Échelles calibrées sur les valeurs réellement observées sur la chaîne,
+   pas sur des hypothèses : un critère qui rend la même note à tout le monde
+   ne mesure rien. Les bornes ci-dessous sont figées et publiées. */
 
-// 1. Exit risk — baisse de prix si le plus gros wallet hors pool sort
-const sExit = imp => imp == null ? null : clamp(100 * (1 - imp/40));
+// 1. Exit risk — baisse de prix si le plus gros wallet hors pool sort.
+//    Les tokens établis se situent entre 40% et 80% : la borne est à 90%.
+const EXIT_MAX = 90;
+const sExit = imp => imp == null ? null : clamp(100 * (1 - imp/EXIT_MAX));
 
 /* 2. Liquidity depth — deux questions, moyennées :
-      a) peut-on sortir une somme normale ? slippage sur une vente de 1 000 $
+      a) une position réelle peut-elle sortir ? slippage sur 10 000 $
       b) la capitalisation est-elle adossée ? liquidité / market cap
-      (a) seul favoriserait les gros pools, (b) seul flatte les tokens
-      que personne n'échange. Les deux ensemble se corrigent. */
-const TRADE_USD = 1000;
+      10 000 $ et non 1 000 $ : sur un pool à plusieurs millions, mille
+      dollars ne bougent rien et le critère sature. */
+const TRADE_USD = 10000;
 function sLiq(liq, mc){
   if(!liq) return 0;
-  // sur x·y=k, vendre TRADE_USD contre un côté valant liq/2
   const ratio = 1 / (1 + (2*TRADE_USD)/liq);
   const slip  = (1 - ratio*ratio) * 100;
   const a = clamp(100 * (1 - slip/30));
@@ -297,21 +316,48 @@ function sLiq(liq, mc){
   return (a + b) / 2;
 }
 
-// 3. Distribution — holders en échelle log, corrigés de la concentration
-const sDist = (h, top10) => clamp(
-  0.7 * clamp(Math.log10(Math.max(h,1)) / Math.log10(5000) * 100) +
-  0.3 * clamp(100 - (top10 ?? 100))
-);
+// 3. Community — nombre de holders réels, échelle log jusqu'à 50 000.
+//    Séparé de la concentration : un token peut avoir beaucoup de monde
+//    ET être concentré, ou l'inverse. Les mélanger cachait les deux.
+const HOLDERS_MAX = 50000;
+const sComm = h => clamp(Math.log10(Math.max(h,1)) / Math.log10(HOLDERS_MAX) * 100);
 
-// 4. Trading activity — volume/liquidité. Pénalise l'inactivité ET le wash
+// 4. Concentration — part du top 10 dans le supply détenu hors pool
+const sConc = top10 => top10 == null ? null : clamp(100 - top10);
+
+/* 6. Scale — capitalisation, en log de 10 K$ à 100 M$.
+      Deux tokens peuvent afficher les mêmes ratios et n'avoir rien à voir :
+      la taille absolue est une forme de résilience (plus de contreparties,
+      plus d'yeux, plus difficile à manipuler). En log, doubler le prix ne
+      gagne que quelques points — le critère mesure l'établissement, pas
+      le momentum. */
+const MC_MIN = 1e4, MC_MAX = 1e8;
+const sScale = mc => (!mc || mc <= 0) ? null :
+  clamp(Math.log10(mc/MC_MIN) / Math.log10(MC_MAX/MC_MIN) * 100);
+
+// 4. Trading activity — volume/liquidité. Plateau resserré à 0.3–2.5x :
+//    au-delà, la rotation quotidienne devient difficile à expliquer autrement
+//    que par du volume artificiel.
 const sAct = (vol, liq) => {
   if(!liq) return 0;
   const r = vol / liq;
-  return r < 0.5 ? clamp(r/0.5*100) : r <= 5 ? 100 : clamp(100 - (r-5)*5);
+  return r < 0.3 ? clamp(r/0.3*100) : r <= 2.5 ? 100 : clamp(100 - (r-2.5)*12);
 };
 
-const SCORE_CUTS = [[90,'AAA'],[80,'AA'],[70,'A'],[62,'BBB'],[54,'BB+'],
-                    [46,'BB'],[38,'B+'],[30,'B'],[20,'B-']];
+/* 7. Track record — âge du pool, en log jusqu'à un an.
+      Le seul critère qu'on ne peut ni acheter ni pumper : un token de trois
+      jours n'a rien prouvé, quels que soient ses ratios. Source : date de
+      création de la paire, déjà présente dans la réponse DEXScreener. */
+const AGE_MAX_DAYS = 365;
+const sAge = createdMs => {
+  if(!createdMs) return null;
+  const days = (Date.now() - createdMs) / 86400000;
+  if(days < 0) return null;
+  return clamp(Math.log10(Math.max(days,1)) / Math.log10(AGE_MAX_DAYS) * 100);
+};
+
+const SCORE_CUTS = [[85,'AAA'],[78,'AA'],[71,'A'],[64,'BBB'],[57,'BB+'],
+                    [50,'BB'],[43,'B+'],[36,'B'],[28,'B-']];
 const gradeFromScore = s => (SCORE_CUTS.find(c => s >= c[0]) || [0,'CCC'])[1];
 
 function tierCeiling(holders){
@@ -322,20 +368,28 @@ function tierCeiling(holders){
 }
 const gradeIdx = g => CONFIG.tiers.findIndex(t => t.grade === g);
 
-/* note finale = min(moyenne des 4, plafond du palier) */
-function rate({holders, top10, impact, liq, mc, vol}){
+/* note finale = min(moyenne des critères disponibles, plafond du palier)
+   Un critère indisponible est exclu de la moyenne, jamais compté comme zéro —
+   mais la ligne est marquée, parce qu'une note incomplète n'est pas une note
+   complète et le lecteur doit le savoir. */
+function rate({holders, top10, impact, liq, mc, vol, createdMs}){
   const scores = {
-    exit: sExit(impact),
-    liq : sLiq(liq, mc),
-    dist: sDist(holders, top10),
-    act : sAct(vol, liq)
+    exit : sExit(impact),
+    liq  : sLiq(liq, mc),
+    comm : sComm(holders),
+    conc : sConc(top10),
+    act  : sAct(vol, liq),
+    scale: sScale(mc),
+    age  : sAge(createdMs)
   };
-  const avg = (['exit','liq','dist','act']
-    .reduce((a,k) => a + (scores[k] ?? 0), 0)) / 4;
+  const KEYS = ['exit','liq','comm','conc','act','scale','age'];
+  const vals = KEYS.map(k=>scores[k]).filter(v=>v!=null);
+  const avg  = vals.length ? vals.reduce((a,b)=>a+b,0)/vals.length : 0;
   const raw  = gradeFromScore(avg);
   const ceil = tierCeiling(holders);
   const capped = gradeIdx(raw) > gradeIdx(ceil);
-  return { scores, avg, grade: capped ? ceil : raw, capped };
+  return { scores, avg, grade: capped ? ceil : raw, capped,
+           incomplete: vals.length < KEYS.length };
 }
 
 /* --- prix / liquidité / volume, en un seul appel groupé --- */
@@ -355,6 +409,21 @@ async function loadMarkets(addrs){
     if(i+25 < addrs.length) await sleep(400);
   }
   return out;
+}
+
+/* --- appel RPC brut : balanceOf, toujours disponible ---
+   Chercher le pool dans la liste des holders échouait sur les tokens
+   matures, où le pool n'est pas parmi les plus gros détenteurs. */
+async function rpcBalanceOf(token, holder){
+  const data = '0x70a08231' + holder.replace(/^0x/,'').toLowerCase().padStart(64,'0');
+  const r = await fetch(CONFIG.chain.rpc, {
+    method:'POST', headers:{'content-type':'application/json'},
+    body: JSON.stringify({jsonrpc:'2.0', id:1, method:'eth_call',
+                          params:[{to:token, data}, 'latest']})
+  });
+  const j = await r.json();
+  if(j.error) throw new Error(j.error.message);
+  return BigInt(j.result);
 }
 
 /* --- holders, supply, plus gros détenteur hors pool --- */
@@ -378,16 +447,17 @@ async function loadToken(addr, pairAddr){
   const excluded = items.length - kept.length;
   const holders = Math.max(0, holdersRaw - excluded);
 
-  // réserve du pool + plus gros détenteur réel → impact d'une sortie totale
+  // réserve du pool lue par RPC → impact d'une sortie totale du plus gros
   let impact = null, top10 = null;
-  const poolItem = items.find(i => pairAddr && (i.address?.hash||'').toLowerCase() === pairAddr.toLowerCase());
-  if(poolItem && kept.length){
-    const T = BigInt(poolItem.value||0);
-    const d = BigInt(kept[0].value||0);
-    if(T > 0n){
-      const ratio = Number(T*10000n/(T+d))/10000;
-      impact = (1 - ratio*ratio) * 100;
-    }
+  if(pairAddr && kept.length){
+    try{
+      const T = await rpcBalanceOf(addr, pairAddr);
+      const d = BigInt(kept[0].value||0);
+      if(T > 0n){
+        const ratio = Number(T*10000n/(T+d))/10000;
+        impact = (1 - ratio*ratio) * 100;
+      }
+    }catch(e){ /* impact reste null, la ligne sera marquée incomplète */ }
   }
   // part du top 10 dans le supply détenu hors pool
   if(kept.length){
@@ -409,13 +479,14 @@ function scoreCell(v){
 function render(){
   const tb = $('#rows');
   if(!ROWS.length){
-    tb.innerHTML = `<tr><td colspan="8" class="empty">
+    tb.innerHTML = `<tr><td colspan="11" class="empty">
       No tokens configured yet. Paste contract addresses into <code>CONFIG.tokens</code>.
     </td></tr>`;
     return;
   }
   const val = (r,k) => ({
-    exit:  r.sc?.exit, liqs: r.sc?.liq, dists: r.sc?.dist, acts: r.sc?.act,
+    exit:  r.sc?.exit, liqs: r.sc?.liq, comms: r.sc?.comm,
+    concs: r.sc?.conc, acts: r.sc?.act, scales: r.sc?.scale, ages: r.sc?.age,
     score: r.score, holders: r.holders
   })[k];
 
@@ -432,25 +503,29 @@ function render(){
       <td class="grade low">—</td>
       <td><span class="sym">${esc(r.symbol||'?')}</span><br>
           <a class="addr" href="${CONFIG.chain.explorer}/token/${r.addr}" target="_blank" rel="noopener">${short(r.addr)} ↗</a></td>
-      <td colspan="6" class="err">${esc(r.error)}</td></tr>`;
+      <td colspan="9" class="err">${esc(r.error)}</td></tr>`;
 
     if(!r.sc) return `<tr${r.self?' class="self"':''}>
       <td class="grade low skel">…</td>
       <td><span class="sym skel">${esc(r.symbol||'…')}</span><br>
           <span class="addr">${short(r.addr)}</span></td>
-      <td colspan="6" class="skel">reading chain…</td></tr>`;
+      <td colspan="9" class="skel">reading chain…</td></tr>`;
 
     const gi = CONFIG.tiers.findIndex(t=>t.grade===r.grade);
     return `<tr${r.self?' class="self"':''}>
       <td><span class="grade${gi<=1?' low':''}">${r.grade}</span>${
-        r.capped ? '<br><span class="pill" title="Capped by holder tier">CAPPED</span>' : ''}</td>
+        r.capped ? '<br><span class="pill" title="Capped by holder tier">CAPPED</span>' : ''}${
+        r.incomplete ? '<br><span class="pill warn" title="One input unavailable">PARTIAL</span>' : ''}</td>
       <td><span class="sym">${esc(r.symbol)}</span>${r.self?' <span class="pill ok">SELF</span>':''}<br>
           <a class="addr" href="${CONFIG.chain.explorer}/token/${r.addr}" target="_blank" rel="noopener">${short(r.addr)} ↗</a></td>
       <td class="n">${nf(r.holders)}</td>
       <td class="n">${scoreCell(r.sc.exit)}${r.impact!=null?`<br><span class="addr">${r.impact.toFixed(1)}% exit</span>`:''}</td>
       <td class="n">${scoreCell(r.sc.liq)}<br><span class="addr">${money(r.liq)}</span></td>
-      <td class="n">${scoreCell(r.sc.dist)}</td>
+      <td class="n">${scoreCell(r.sc.comm)}</td>
+      <td class="n">${scoreCell(r.sc.conc)}${r.top10!=null?`<br><span class="addr">top10 ${r.top10.toFixed(0)}%</span>`:''}</td>
       <td class="n">${scoreCell(r.sc.act)}<br><span class="addr">${money(r.vol)}</span></td>
+      <td class="n">${scoreCell(r.sc.scale)}<br><span class="addr">${money(r.mc)}</span></td>
+      <td class="n">${scoreCell(r.sc.age)}${r.createdMs?`<br><span class="addr">${Math.floor((Date.now()-r.createdMs)/86400000)}d</span>`:''}</td>
       <td class="n"><b style="color:var(--ink)">${Math.round(r.score)}</b></td>
     </tr>`;
   }).join('');
@@ -484,7 +559,8 @@ async function run(){
       const mc = m?.marketCap ?? m?.fdv ?? 0;
       const liq = m?.liquidity?.usd ?? 0;
       const vol = m?.volume?.h24 ?? 0;
-      const r = rate({ holders:info.holders, top10:info.top10, impact:info.impact, liq, mc, vol });
+      const r = rate({ holders:info.holders, top10:info.top10, impact:info.impact,
+                      liq, mc, vol, createdMs: m?.pairCreatedAt });
       Object.assign(row, {
         symbol: info.symbol,
         holders: info.holders,
@@ -493,6 +569,8 @@ async function run(){
         score: r.avg,
         sc: r.scores,
         impact: info.impact,
+        top10: info.top10,
+        createdMs: m?.pairCreatedAt,
         liq, vol, mc,
         error: null
       });
