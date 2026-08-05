@@ -757,7 +757,7 @@ const CONFIG = {
      s'invente pas. */
   stats: [
     { key:"holders",  label:"HOLDERS",        icon:"user",   value:"—", series:[], delta:"live", note:"read on-chain",       type:"line", flat:true },
-    { key:"dev",      label:"DEV HOLDS",      icon:"users",  value:"—", series:[], delta:"live", note:"of circulating",      type:"line", flat:true },
+    { key:"dev",      label:"DEV POSITION",   icon:"users",  value:"—", series:[], delta:"live", note:"of total supply",    type:"line", flat:true },
     { key:"flow",     label:"BUYS / SELLS",   icon:"swap",   value:"—", series:[], delta:"live", note:"last 24h",            type:"line", flat:true },
     { key:"buybacks", label:"BUYBACKS",       icon:"dollar", value:"0", series:[], delta:"0 ETH", note:"none yet",           type:"bars", plainDelta:true },
     { key:"safety",   label:"SAFETY CHECKS",  icon:"shield", value:"—", series:[], delta:"—",    note:"self-reported",       type:"line", flat:true }
@@ -1417,10 +1417,12 @@ function updateHolders(count, excluded){
 
 /* --- 3. Solde du treasury (appel RPC balanceOf) --- */
 /* --- 5. Position du dev, lue on-chain ---
-   Rapportée au supply circulant (total moins ce qui dort dans le pool),
-   parce que c'est ce chiffre-là qui dit la concentration réelle. Le % du
-   supply total est donné en dessous : les deux comptent, ils ne disent
-   pas la même chose. */
+   ATTENTION au choix du dénominateur. Sur un lancement Pons, le pool détient
+   ~98% du supply : rapporter la position du dev au seul "circulant" donne un
+   pourcentage énorme qui ne mesure pas sa mainmise, mais l'absence d'autres
+   acheteurs. Le chiffre qui dit le risque, c'est l'impact d'une vente totale
+   sur le prix — d = position du dev, T = réserve du pool, courbe x·y=k :
+   baisse ≈ 1 − (T/(T+d))². */
 async function loadDev(){
   if(!CONFIG.devAddress) throw new Error('devAddress non renseignée');
   const supply = window.__supplyRaw;
@@ -1439,24 +1441,32 @@ async function loadDev(){
 
   const devRaw  = BigInt(devHex);
   const poolRaw = BigInt(poolHex);
-  const circ    = supply - poolRaw;
-  if(circ <= 0n) throw new Error('supply circulant nul');
 
-  const pctCirc  = Number(devRaw * 10000n / circ)   / 100;
   const pctTotal = Number(devRaw * 10000n / supply) / 100;
 
-  const verdict = pctCirc > 50 ? 'dev-controlled'
-                : pctCirc > 20 ? 'concentrated'
-                : 'distributed';
+  // impact d'une sortie complète du dev, en points de base
+  let impact = null;
+  if(poolRaw > 0n){
+    const T = poolRaw, d = devRaw;
+    const ratioBp = Number(T * 10000n / (T + d)) / 10000;   // T/(T+d)
+    impact = (1 - ratioBp * ratioBp) * 100;
+  }
+
+  const verdict = impact == null ? 'pool unknown'
+                : impact > 20 ? 'high exit risk'
+                : impact > 5  ? 'moderate exit risk'
+                : 'low exit risk';
 
   setStat('dev', {
-    value: pctCirc.toFixed(1) + '%',
+    value: pctTotal.toFixed(2) + '%',
     delta: verdict,
-    note : `${pctTotal.toFixed(2)}% of total supply`
+    note : impact == null
+             ? 'of total supply'
+             : `of total supply · full exit \u2248 ${impact.toFixed(1)}% price move`
   });
 
   window.__devTokens = unwei(devHex, dec);
-  return `${pctCirc.toFixed(1)}% du circulant · ${verdict}`;
+  return `${pctTotal.toFixed(2)}% du supply · sortie totale \u2248 -${impact?.toFixed(1)}%`;
 }
 
 async function loadTreasury(){
