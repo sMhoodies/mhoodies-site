@@ -137,7 +137,6 @@ footer{border-top:1px solid var(--line);padding:32px 0;margin-top:20px;color:var
             <th class="s" data-k="grade">GRADE</th>
             <th>TOKEN</th>
             <th class="n s" data-k="holders">HOLDERS</th>
-            <th class="n s" data-k="exit">EXIT RISK</th>
             <th class="n s" data-k="liqs">LIQ DEPTH</th>
             <th class="n s" data-k="comms">COMMUNITY</th>
             <th class="n s" data-k="concs">CONCENTR.</th>
@@ -158,45 +157,39 @@ footer{border-top:1px solid var(--line);padding:32px 0;margin-top:20px;color:var
     <div class="card-head"><h3>METHODOLOGY</h3><span class="mono-label">PUBLISHED · UNCHANGED</span></div>
     <div class="method">
       <div>
-        <h4>Exit risk · 14.3%</h4>
-        <p>Price move if the largest non-pool <em>wallet</em> sells its whole position into
-           the pool, on a constant-product curve. Contracts are excluded — a second pool, a
-           bridge or an exchange wallet is not a discretionary seller, and counting them
-           inflated this figure. 0% scores 100, 90% scores 0.</p>
-      </div>
-      <div>
-        <h4>Liquidity depth · 14.3%</h4>
+        <h4>Liquidity depth · 16.7%</h4>
         <p>Two halves, averaged. Slippage on a $10,000 sell — can a real position be exited.
            And liquidity against market cap — is the valuation backed. Measuring only the
            second flatters tokens nobody trades; only the first flatters size.</p>
       </div>
       <div>
-        <h4>Community · 14.3%</h4>
+        <h4>Community · 16.7%</h4>
         <p>Real holder count on a log scale to 50,000. Pools and burn addresses are excluded —
            a pool is not a community member. This is the only criterion that rewards size,
            and it also sets the ceiling below.</p>
       </div>
       <div>
-        <h4>Concentration · 14.3%</h4>
-        <p>The top 10 wallets' share of supply held outside the pool. Kept separate from
-           community size because they are different questions: a token can have many
-           holders and still be owned by ten of them.</p>
+        <h4>Concentration · 16.7%</h4>
+        <p>The top 10 wallets' share of supply held outside the pool, with the single
+           largest wallet shown alongside. Kept separate from community size because they
+           are different questions: a token can have many holders and still be owned by
+           ten of them.</p>
       </div>
       <div>
-        <h4>Trading activity · 14.3%</h4>
+        <h4>Trading activity · 16.7%</h4>
         <p>24h volume against liquidity. Full marks between 0.3x and 2.5x daily turnover.
            Below that is a dead book; above it, churn that is hard to explain by organic
            demand alone.</p>
       </div>
       <div>
-        <h4>Scale · 14.3%</h4>
+        <h4>Scale · 16.7%</h4>
         <p>Market cap on a log scale from $10K to $100M. Two tokens can post identical
            ratios and be nothing alike: absolute size is a form of resilience. Log-scaled
            so that a price rally moves the score by a few points, not a grade — this
            measures how established a token is, not its momentum.</p>
       </div>
       <div>
-        <h4>Track record · 14.3%</h4>
+        <h4>Track record · 16.7%</h4>
         <p>Pool age on a log scale to one year. The one input nobody can buy, borrow or
            pump: a three-day-old token has proven nothing, whatever its ratios say. Taken
            from the pair creation timestamp on-chain.</p>
@@ -246,6 +239,7 @@ const CONFIG = {
     { addr:"0x62C71cd34a52c30d894419CBcc55Db2aFA8032eA" },   // YOLO
     { addr:"0x3aE3faCC99F43D5A39254A0b9f5cc0291ECd39cc" },   // INTERN
     { addr:"0xe15db7C8547A0adD11eB26A700246cCa08aEfCe5" },   // WOOF
+    { addr:"0xD7321801CAae694090694Ff55A9323139F043B88" },   // JUGGERNAUT
   ],
 
   /* Même table que le dashboard. Ne la modifie pas sans raison :
@@ -296,11 +290,6 @@ const clamp = (v,a=0,b=100) => Math.max(a, Math.min(b, v));
    Échelles calibrées sur les valeurs réellement observées sur la chaîne,
    pas sur des hypothèses : un critère qui rend la même note à tout le monde
    ne mesure rien. Les bornes ci-dessous sont figées et publiées. */
-
-// 1. Exit risk — baisse de prix si le plus gros wallet hors pool sort.
-//    Les tokens établis se situent entre 40% et 80% : la borne est à 90%.
-const EXIT_MAX = 90;
-const sExit = imp => imp == null ? null : clamp(100 * (1 - imp/EXIT_MAX));
 
 /* 2. Liquidity depth — deux questions, moyennées :
       a) une position réelle peut-elle sortir ? slippage sur 10 000 $
@@ -375,9 +364,8 @@ const gradeIdx = g => CONFIG.tiers.findIndex(t => t.grade === g);
    Un critère indisponible est exclu de la moyenne, jamais compté comme zéro —
    mais la ligne est marquée, parce qu'une note incomplète n'est pas une note
    complète et le lecteur doit le savoir. */
-function rate({holders, top10, impact, liq, mc, vol, createdMs}){
+function rate({holders, top10, liq, mc, vol, createdMs}){
   const scores = {
-    exit : sExit(impact),
     liq  : sLiq(liq, mc),
     comm : sComm(holders),
     conc : sConc(top10),
@@ -385,7 +373,7 @@ function rate({holders, top10, impact, liq, mc, vol, createdMs}){
     scale: sScale(mc),
     age  : sAge(createdMs)
   };
-  const KEYS = ['exit','liq','comm','conc','act','scale','age'];
+  const KEYS = ['liq','comm','conc','act','scale','age'];
   const vals = KEYS.map(k=>scores[k]).filter(v=>v!=null);
   const avg  = vals.length ? vals.reduce((a,b)=>a+b,0)/vals.length : 0;
   const raw  = gradeFromScore(avg);
@@ -418,21 +406,6 @@ async function loadMarkets(addrs){
   return out;
 }
 
-/* --- appel RPC brut : balanceOf, toujours disponible ---
-   Chercher le pool dans la liste des holders échouait sur les tokens
-   matures, où le pool n'est pas parmi les plus gros détenteurs. */
-async function rpcBalanceOf(token, holder){
-  const data = '0x70a08231' + holder.replace(/^0x/,'').toLowerCase().padStart(64,'0');
-  const r = await fetch(CONFIG.chain.rpc, {
-    method:'POST', headers:{'content-type':'application/json'},
-    body: JSON.stringify({jsonrpc:'2.0', id:1, method:'eth_call',
-                          params:[{to:token, data}, 'latest']})
-  });
-  const j = await r.json();
-  if(j.error) throw new Error(j.error.message);
-  return BigInt(j.result);
-}
-
 /* --- holders, supply, plus gros détenteur hors pool --- */
 async function loadToken(addr, pairAddr){
   const base = `${CONFIG.chain.explorer}/api/v2/tokens/${addr}`;
@@ -460,27 +433,17 @@ async function loadToken(addr, pairAddr){
      un beau matin de tout vendre. Les compter gonflait le chiffre. */
   const wallets = kept.filter(i => i.address?.is_contract !== true);
 
-  // réserve du pool lue par RPC → impact d'une sortie totale du plus gros
-  let impact = null, top10 = null;
-  if(pairAddr && wallets.length){
-    try{
-      const T = await rpcBalanceOf(addr, pairAddr);
-      const d = BigInt(wallets[0].value||0);
-      if(T > 0n){
-        const ratio = Number(T*10000n/(T+d))/10000;
-        impact = (1 - ratio*ratio) * 100;
-      }
-    }catch(e){ /* impact reste null, la ligne sera marquée PARTIAL */ }
-  }
-  // part du top 10 dans le supply détenu hors pool
+  // parts du plus gros wallet et du top 10 dans le supply détenu hors pool
+  let top1 = null;
   if(kept.length){
     const held = kept.reduce((a,i)=>a+BigInt(i.value||0), 0n);
     if(held > 0n){
       const t10 = kept.slice(0,10).reduce((a,i)=>a+BigInt(i.value||0), 0n);
       top10 = Number(t10 * 10000n / held) / 100;
+      if(wallets.length) top1 = Number(BigInt(wallets[0].value||0) * 10000n / held) / 100;
     }
   }
-  return { symbol, holders, impact, top10 };
+  return { symbol, holders, top10, top1 };
 }
 
 function scoreCell(v){
@@ -492,13 +455,13 @@ function scoreCell(v){
 function render(){
   const tb = $('#rows');
   if(!ROWS.length){
-    tb.innerHTML = `<tr><td colspan="11" class="empty">
+    tb.innerHTML = `<tr><td colspan="10" class="empty">
       No tokens configured yet. Paste contract addresses into <code>CONFIG.tokens</code>.
     </td></tr>`;
     return;
   }
   const val = (r,k) => ({
-    exit:  r.sc?.exit, liqs: r.sc?.liq, comms: r.sc?.comm,
+    liqs: r.sc?.liq, comms: r.sc?.comm,
     concs: r.sc?.conc, acts: r.sc?.act, scales: r.sc?.scale, ages: r.sc?.age,
     score: r.score, holders: r.holders
   })[k];
@@ -516,13 +479,13 @@ function render(){
       <td class="grade low">—</td>
       <td><span class="sym">${esc(r.symbol||'?')}</span><br>
           <a class="addr" href="${CONFIG.chain.explorer}/token/${r.addr}" target="_blank" rel="noopener">${short(r.addr)} ↗</a></td>
-      <td colspan="9" class="err">${esc(r.error)}</td></tr>`;
+      <td colspan="8" class="err">${esc(r.error)}</td></tr>`;
 
     if(!r.sc) return `<tr${r.self?' class="self"':''}>
       <td class="grade low skel">…</td>
       <td><span class="sym skel">${esc(r.symbol||'…')}</span><br>
           <span class="addr">${short(r.addr)}</span></td>
-      <td colspan="9" class="skel">reading chain…</td></tr>`;
+      <td colspan="8" class="skel">reading chain…</td></tr>`;
 
     const gi = CONFIG.tiers.findIndex(t=>t.grade===r.grade);
     return `<tr${r.self?' class="self"':''}>
@@ -532,10 +495,9 @@ function render(){
       <td><span class="sym">${esc(r.symbol)}</span>${r.self?' <span class="pill ok">SELF</span>':''}<br>
           <a class="addr" href="${CONFIG.chain.explorer}/token/${r.addr}" target="_blank" rel="noopener">${short(r.addr)} ↗</a></td>
       <td class="n">${nf(r.holders)}</td>
-      <td class="n">${scoreCell(r.sc.exit)}${r.impact!=null?`<br><span class="addr">${r.impact.toFixed(1)}% exit</span>`:''}</td>
       <td class="n">${scoreCell(r.sc.liq)}<br><span class="addr">${money(r.liq)}</span></td>
       <td class="n">${scoreCell(r.sc.comm)}</td>
-      <td class="n">${scoreCell(r.sc.conc)}${r.top10!=null?`<br><span class="addr">top10 ${r.top10.toFixed(0)}%</span>`:''}</td>
+      <td class="n">${scoreCell(r.sc.conc)}${r.top10!=null?`<br><span class="addr">top10 ${r.top10.toFixed(0)}%${r.top1!=null?` · #1 ${r.top1.toFixed(0)}%`:''}</span>`:''}</td>
       <td class="n">${scoreCell(r.sc.act)}<br><span class="addr">${money(r.vol)}</span></td>
       <td class="n">${scoreCell(r.sc.scale)}<br><span class="addr">${money(r.mc)}</span></td>
       <td class="n">${scoreCell(r.sc.age)}${r.createdMs?`<br><span class="addr">${Math.floor((Date.now()-r.createdMs)/86400000)}d</span>`:''}</td>
@@ -572,7 +534,7 @@ async function run(){
       const mc  = m?.marketCap ?? m?.fdv ?? null;
       const liq = m?.liquidity?.usd ?? null;
       const vol = m?.volume?.h24 ?? null;
-      const r = rate({ holders:info.holders, top10:info.top10, impact:info.impact,
+      const r = rate({ holders:info.holders, top10:info.top10,
                       liq, mc, vol, createdMs: m?.pairCreatedAt });
       Object.assign(row, {
         symbol: info.symbol,
@@ -581,8 +543,8 @@ async function run(){
         capped: r.capped,
         score: r.avg,
         sc: r.scores,
-        impact: info.impact,
         top10: info.top10,
+        top1: info.top1,
         createdMs: m?.pairCreatedAt,
         liq, vol, mc,
         error: null
