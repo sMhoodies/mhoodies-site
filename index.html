@@ -689,6 +689,10 @@ const CONFIG = {
         Laisse vide si tu n'en as pas encore. */
   treasuryAddress: "",
 
+  /* ② bis — Wallet du dev. Publié et lu en direct : c'est la première
+     chose qu'un analyste cherche, autant qu'il la trouve chez nous. */
+  devAddress: "0x58b689e6eB54eBFAA594f4418A0424d3861f1b15",
+
   /* ③ LIENS. Ceux à null se construisent tout seuls depuis tokenAddress.
         Pour buy : va sur ta page token Pons, copie l'URL de la barre
         d'adresse du navigateur, colle-la ici. C'est tout. */
@@ -753,7 +757,7 @@ const CONFIG = {
      s'invente pas. */
   stats: [
     { key:"holders",  label:"HOLDERS",        icon:"user",   value:"—", series:[], delta:"live", note:"read on-chain",       type:"line", flat:true },
-    { key:"top10",    label:"TOP 10 HOLD",    icon:"users",  value:"—", series:[], delta:"live", note:"of held supply",      type:"line", flat:true },
+    { key:"dev",      label:"DEV HOLDS",      icon:"users",  value:"—", series:[], delta:"live", note:"of circulating",      type:"line", flat:true },
     { key:"flow",     label:"BUYS / SELLS",   icon:"swap",   value:"—", series:[], delta:"live", note:"last 24h",            type:"line", flat:true },
     { key:"buybacks", label:"BUYBACKS",       icon:"dollar", value:"0", series:[], delta:"0 ETH", note:"none yet",           type:"bars", plainDelta:true },
     { key:"safety",   label:"SAFETY CHECKS",  icon:"shield", value:"—", series:[], delta:"—",    note:"self-reported",       type:"line", flat:true }
@@ -817,7 +821,8 @@ const CONFIG = {
      Une adresse fausse sur une page "Transparency", c'est le pire endroit. */
   addresses: [
     { label:"Token",   addr:"0x8A070f9D4b1CA73FB27f17989A94128bdb4E0b44", purpose:"mHoodies ERC-20 · verified, no owner, no mint" },
-    { label:"LP Pool", addr:"0x49662b2daC8B1e0EB279E3BdD7c06668D57d097E", purpose:"mHoodies / WETH · 1% pool fee" }
+    { label:"LP Pool", addr:"0x49662b2daC8B1e0EB279E3BdD7c06668D57d097E", purpose:"mHoodies / WETH · 1% pool fee" },
+    { label:"Dev",     addr:"0x58b689e6eB54eBFAA594f4418A0424d3861f1b15", purpose:"Deployer · holds dev bag + buybacks · read live above" }
   ],
 
   /* done: true UNIQUEMENT si tu l'as constaté toi-même sur l'explorer.
@@ -1360,32 +1365,14 @@ async function loadConcentration(){
     updateHolders(Math.max(0, window.__holdersTotal - excludedFound), excludedFound);
   }
 
-  /* Sous 11 holders, le "top 10" est l'ensemble des holders : le résultat
-     vaut 100% par construction et n'informe sur rien. On laisse la carte
-     dormante, elle s'active seule au 11e holder. */
-  if(kept.length <= 10){
-    setStat('top10', {
-      value: '—',
-      delta: 'not meaningful yet',
-      note : `needs 11+ holders · ${nf(kept.length)} today`
-    });
-    return `en veille · ${nf(kept.length)} holders (seuil : 11)`;
-  }
-
+  /* La concentration du top 10 n'est plus affichée en carte : sous 11
+     holders elle vaut 100% par construction. La position du dev, elle,
+     est lisible dès le premier jour — c'est loadDev qui s'en charge.
+     Cette fonction reste la source du comptage des holders réels. */
   const top = kept.slice(0, 10);
   const sum = top.reduce((a, i) => a + BigInt(i.value || 0), 0n);
   const pct = Number(sum * 10000n / denom) / 100;
-
-  const verdict = pct > 70 ? 'highly concentrated'
-                : pct > 40 ? 'moderate'
-                : 'well distributed';
-
-  setStat('top10', {
-    value: pct.toFixed(1) + '%',
-    delta: verdict,
-    note : `top 10 of ${nf(kept.length)} holders`
-  });
-  return `${pct.toFixed(1)}% du supply détenu · ${verdict}`;
+  return `${nf(kept.length)} holders réels · top 10 = ${pct.toFixed(1)}%`;
 }
 
 /* --- mise à jour du compteur de holders, du flash et de la note ---
@@ -1429,6 +1416,49 @@ function updateHolders(count, excluded){
 }
 
 /* --- 3. Solde du treasury (appel RPC balanceOf) --- */
+/* --- 5. Position du dev, lue on-chain ---
+   Rapportée au supply circulant (total moins ce qui dort dans le pool),
+   parce que c'est ce chiffre-là qui dit la concentration réelle. Le % du
+   supply total est donné en dessous : les deux comptent, ils ne disent
+   pas la même chose. */
+async function loadDev(){
+  if(!CONFIG.devAddress) throw new Error('devAddress non renseignée');
+  const supply = window.__supplyRaw;
+  if(!supply) throw new Error('supply non encore lu');
+  const dec = window.__decimals ?? 18;
+
+  const call = addr => rpc('eth_call', [{
+    to: TOKEN, data: '0x70a08231' + pad(addr)
+  }, 'latest']);
+
+  const pool = (CONFIG.excludeFromConcentration || [])[0];
+  const [devHex, poolHex] = await Promise.all([
+    call(CONFIG.devAddress),
+    pool ? call(pool) : Promise.resolve('0x0')
+  ]);
+
+  const devRaw  = BigInt(devHex);
+  const poolRaw = BigInt(poolHex);
+  const circ    = supply - poolRaw;
+  if(circ <= 0n) throw new Error('supply circulant nul');
+
+  const pctCirc  = Number(devRaw * 10000n / circ)   / 100;
+  const pctTotal = Number(devRaw * 10000n / supply) / 100;
+
+  const verdict = pctCirc > 50 ? 'dev-controlled'
+                : pctCirc > 20 ? 'concentrated'
+                : 'distributed';
+
+  setStat('dev', {
+    value: pctCirc.toFixed(1) + '%',
+    delta: verdict,
+    note : `${pctTotal.toFixed(2)}% of total supply`
+  });
+
+  window.__devTokens = unwei(devHex, dec);
+  return `${pctCirc.toFixed(1)}% du circulant · ${verdict}`;
+}
+
 async function loadTreasury(){
   if(!CONFIG.treasuryAddress) throw new Error('treasuryAddress non renseignée');
   const dec = window.__decimals ?? 18;
@@ -1465,7 +1495,8 @@ async function refresh(){
 
   const jobs = [
     ['DEXScreener (prix, flux)',  loadMarket],
-    ['Blockscout (top 10)',       loadConcentration],
+    ['RPC (dev holdings)',        loadDev],
+    ['Blockscout (holders réels)',loadConcentration],
     ['RPC (treasury balance)',    loadTreasury]
   ];
   const results = await Promise.allSettled(jobs.map(j => j[1]()));
