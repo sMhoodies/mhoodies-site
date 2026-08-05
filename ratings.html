@@ -170,10 +170,11 @@ footer{border-top:1px solid var(--line);padding:32px 0;margin-top:20px;color:var
       </div>
       <div>
         <h4>Concentration · 16.7%</h4>
-        <p>The top 10 wallets' share of supply held outside the pool, with the single
-           largest wallet shown alongside. Kept separate from community size because they
-           are different questions: a token can have many holders and still be owned by
-           ten of them.</p>
+        <p>The top 10 holders' share of supply held outside the pool, with the single
+           largest shown alongside. The denominator is total supply minus the pool's own
+           balance, read by direct contract call — measured against the explorer's first
+           page of holders instead, this ratio converges to the same value for every token
+           and says nothing.</p>
       </div>
       <div>
         <h4>Trading activity · 16.7%</h4>
@@ -199,6 +200,13 @@ footer{border-top:1px solid var(--line);padding:32px 0;margin-top:20px;color:var
         <p>The average is then capped by holder count against the tier table. A token cannot
            outrank its community size — being too small to have problems is not the same as
            being sound. Capped rows are marked.</p>
+      </div>
+      <div>
+        <h4>Delisted pairs</h4>
+        <p>When an aggregator drops a pair — which happens below a certain liquidity or
+           activity level — price and liquidity are rebuilt from the pool's own balances
+           on-chain. Those rows are marked ON-CHAIN. Volume cannot be reconstructed this
+           way and is left out of the average rather than scored zero.</p>
       </div>
       <div>
         <h4>Missing inputs</h4>
@@ -232,14 +240,18 @@ const CONFIG = {
      Le symbole affiché est LU ON-CHAIN, pas écrit ici : si tu colles une
      mauvaise adresse, le mauvais symbole apparaîtra immédiatement.
      Laisse `self:true` sur mHoodies pour qu'il soit surligné. */
+  /* Une ligne par token. Le symbole affiché est LU ON-CHAIN, pas écrit ici :
+     une mauvaise adresse produit un mauvais symbole, visible immédiatement.
+     `pool` est optionnel — à renseigner uniquement si DEXScreener a
+     déréférencé la paire, pour que la page lise le pool directement. */
   tokens: [
-    { addr:"0x8A070f9D4b1CA73FB27f17989A94128bdb4E0b44", self:true },  // mHoodies
+    { addr:"0x8A070f9D4b1CA73FB27f17989A94128bdb4E0b44", self:true,
+      pool:"0x49662b2daC8B1e0EB279E3BdD7c06668D57d097E" },   // mHoodies
     { addr:"0x020bfC650A365f8BB26819deAAbF3E21291018b4" },   // CASHCAT
     { addr:"0x39dBED3a2bd333467115dE45665cC57F813C4571" },   // PONS
     { addr:"0x62C71cd34a52c30d894419CBcc55Db2aFA8032eA" },   // YOLO
     { addr:"0x3aE3faCC99F43D5A39254A0b9f5cc0291ECd39cc" },   // INTERN
     { addr:"0xe15db7C8547A0adD11eB26A700246cCa08aEfCe5" },   // WOOF
-    { addr:"0xD7321801CAae694090694Ff55A9323139F043B88" },   // JUGGERNAUT
   ],
 
   /* Même table que le dashboard. Ne la modifie pas sans raison :
@@ -406,6 +418,54 @@ async function loadMarkets(addrs){
   return out;
 }
 
+/* --- appel RPC brut : balanceOf --- */
+async function rpcBalanceOf(token, holder){
+  const data = '0x70a08231' + holder.replace(/^0x/,'').toLowerCase().padStart(64,'0');
+  const r = await fetch(CONFIG.chain.rpc, {
+    method:'POST', headers:{'content-type':'application/json'},
+    body: JSON.stringify({jsonrpc:'2.0', id:1, method:'eth_call',
+                          params:[{to:token, data}, 'latest']})
+  });
+  const j = await r.json();
+  if(j.error) throw new Error(j.error.message);
+  return BigInt(j.result);
+}
+
+/* --- repli on-chain ---
+   Quand DEXScreener déréférence une paire (liquidité ou activité trop
+   faibles), on reconstruit prix, liquidité et capitalisation depuis les
+   soldes du pool. Le prix de l'ETH est déduit d'une paire encore indexée :
+   priceUsd / priceNative donne les dollars par ETH. Aucune dépendance
+   supplémentaire. */
+async function poolFallback(tokenAddr, pairAddr, supplyRaw, dec, ethUsd){
+  if(!pairAddr || !ethUsd || !supplyRaw) return null;
+  const r = await fetch(`${CONFIG.chain.explorer}/api/v2/addresses/${pairAddr}/token-balances`);
+  if(!r.ok) return null;
+  const items = await r.json();
+  if(!Array.isArray(items)) return null;
+
+  const mine  = items.find(i => (i.token?.address_hash||i.token?.address||'').toLowerCase() === tokenAddr.toLowerCase());
+  const other = items.find(i => (i.token?.address_hash||i.token?.address||'').toLowerCase() !== tokenAddr.toLowerCase());
+  if(!mine || !other) return null;
+
+  const toNum = (raw, d) => {
+    const v = BigInt(raw||0), p = 10n ** BigInt(d);
+    return Number(v / p) + Number(v % p) / Number(p);
+  };
+  const tokAmt  = toNum(mine.value,  parseInt(mine.token?.decimals  ?? dec, 10));
+  const quoteAmt= toNum(other.value, parseInt(other.token?.decimals ?? 18, 10));
+  if(!tokAmt || !quoteAmt) return null;
+
+  const priceUsd = (quoteAmt / tokAmt) * ethUsd;
+  return {
+    liquidity:{ usd: quoteAmt * ethUsd * 2 },
+    marketCap: priceUsd * toNum(supplyRaw, dec),
+    volume:{ h24: null },        // non reconstituable sans historique
+    priceUsd: String(priceUsd),
+    __fallback: true
+  };
+}
+
 /* --- holders, supply, plus gros détenteur hors pool --- */
 async function loadToken(addr, pairAddr){
   const base = `${CONFIG.chain.explorer}/api/v2/tokens/${addr}`;
@@ -415,6 +475,8 @@ async function loadToken(addr, pairAddr){
 
   const holdersRaw = parseInt(t.holders ?? t.holders_count ?? 0, 10);
   const symbol = t.symbol || '?';
+  const decimals = parseInt(t.decimals ?? 18, 10);
+  const supplyRaw = t.total_supply || null;
 
   await sleep(250);
   const hr = await fetch(base+'/holders');
@@ -427,23 +489,31 @@ async function loadToken(addr, pairAddr){
   const excluded = items.length - kept.length;
   const holders = Math.max(0, holdersRaw - excluded);
 
-  /* Pour l'exit risk on ne retient que les portefeuilles, pas les contrats.
-     Sur un token établi, le plus gros détenteur restant est souvent une
-     seconde pool, un pont ou un wallet d'exchange : aucun d'eux ne décide
-     un beau matin de tout vendre. Les compter gonflait le chiffre. */
-  const wallets = kept.filter(i => i.address?.is_contract !== true);
 
-  // parts du plus gros wallet et du top 10 dans le supply détenu hors pool
+  /* Concentration rapportée au supply RÉELLEMENT détenu = supply total moins
+     ce qui dort dans le pool. Rapporter à la somme de la page renvoyée par
+     l'explorer (une cinquantaine de lignes) mesurait la part du top 10 dans
+     le top 50 : un ratio quasi identique pour tous les memecoins, qui ne dit
+     rien de la concentration. Le top 10 est bien dans la première page, seul
+     le dénominateur était faux. */
   let top1 = null;
-  if(kept.length){
-    const held = kept.reduce((a,i)=>a+BigInt(i.value||0), 0n);
-    if(held > 0n){
+  if(kept.length && supplyRaw){
+    let held = null;
+    try{
+      const poolBal = pairAddr ? await rpcBalanceOf(addr, pairAddr) : 0n;
+      const total = BigInt(supplyRaw);
+      if(total > poolBal) held = total - poolBal;
+    }catch(e){ /* held reste null */ }
+
+    if(held && held > 0n){
       const t10 = kept.slice(0,10).reduce((a,i)=>a+BigInt(i.value||0), 0n);
       top10 = Number(t10 * 10000n / held) / 100;
-      if(wallets.length) top1 = Number(BigInt(wallets[0].value||0) * 10000n / held) / 100;
+      // kept[0] et non wallets[0] : sur cette chaîne un wallet intelligent est
+      // un contrat, l'exclure faisait disparaître de vrais détenteurs.
+      top1 = Number(BigInt(kept[0].value||0) * 10000n / held) / 100;
     }
   }
-  return { symbol, holders, top10, top1 };
+  return { symbol, holders, top10, top1, decimals, supplyRaw };
 }
 
 function scoreCell(v){
@@ -492,7 +562,7 @@ function render(){
       <td><span class="grade${gi<=1?' low':''}">${r.grade}</span>${
         r.capped ? '<br><span class="pill" title="Capped by holder tier">CAPPED</span>' : ''}${
         r.incomplete ? '<br><span class="pill warn" title="One input unavailable">PARTIAL</span>' : ''}</td>
-      <td><span class="sym">${esc(r.symbol)}</span>${r.self?' <span class="pill ok">SELF</span>':''}<br>
+      <td><span class="sym">${esc(r.symbol)}</span>${r.self?' <span class="pill ok">SELF</span>':''}${r.fallback?' <span class="pill warn" title="Not indexed by DEXScreener — read from the pool">ON-CHAIN</span>':''}<br>
           <a class="addr" href="${CONFIG.chain.explorer}/token/${r.addr}" target="_blank" rel="noopener">${short(r.addr)} ↗</a></td>
       <td class="n">${nf(r.holders)}</td>
       <td class="n">${scoreCell(r.sc.liq)}<br><span class="addr">${money(r.liq)}</span></td>
@@ -525,12 +595,23 @@ async function run(){
   try { markets = await loadMarkets(list.map(t=>t.addr)); }
   catch(e){ /* on continue : l'explorer suffit pour la note */ }
 
+  // dollars par ETH, déduits de n'importe quelle paire encore indexée
+  let ethUsd = null;
+  for(const p of Object.values(markets)){
+    const u = parseFloat(p.priceUsd||0), n = parseFloat(p.priceNative||0);
+    if(u > 0 && n > 0){ ethUsd = u / n; break; }
+  }
+
   let done = 0;
   for(const t of list){
-    const m = markets[t.addr.toLowerCase()];
+    let m = markets[t.addr.toLowerCase()];
     const row = ROWS.find(r=>r.addr===t.addr);
     try{
-      const info = await loadToken(t.addr, m?.pairAddress);
+      const info = await loadToken(t.addr, m?.pairAddress || t.pool);
+      if(!m && (t.pool || m?.pairAddress)){
+        try{ m = await poolFallback(t.addr, t.pool, info.supplyRaw, info.decimals, ethUsd); }
+        catch(e){ /* le repli a échoué, la ligne restera PARTIAL */ }
+      }
       const mc  = m?.marketCap ?? m?.fdv ?? null;
       const liq = m?.liquidity?.usd ?? null;
       const vol = m?.volume?.h24 ?? null;
@@ -546,6 +627,7 @@ async function run(){
         top10: info.top10,
         top1: info.top1,
         createdMs: m?.pairCreatedAt,
+        fallback: !!m?.__fallback,
         liq, vol, mc,
         error: null
       });
